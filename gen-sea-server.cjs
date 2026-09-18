@@ -69,4 +69,13 @@ listen(4173, 20);
 `;
 
 fs.writeFileSync(path.join(__dirname, "sea-server.cjs"), server);
+fs.writeFileSync(
+  path.join(__dirname, "sea-config.json"),
+  JSON.stringify(
+    { main: "sea-server.cjs", output: "sea-prep.blob", disableExperimentalSEAWarning: true },
+    null,
+    2
+  )
+);
 console.log("sea-server.cjs written:", (server.length / 1024 / 1024).toFixed(2), "MB");
+console.log("sea-config.json written");

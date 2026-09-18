@@ -1,0 +1,69 @@
+name: Build EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Generate embedded server + SEA blob
+        run: |
+          node gen-sea-server.cjs
+          node --experimental-sea-config sea-config.json
+
+      - name: Install postject
+        run: npm install --no-save postject
+
+      - name: Inject blob into node.exe
+        shell: bash
+        run: |
+          NODE_EXE=$(which node)
+          SENTINEL=$(grep -a -o "NODE_SEA_FUSE_[a-f0-9]*" "$NODE_EXE" | head -1)
+          echo "Using sentinel: $SENTINEL"
+          cp "$NODE_EXE" "图片对比查看器.exe"
+          npx postject "图片对比查看器.exe" NODE_SEA_BLOB sea-prep.blob --sentinel-fuse "$SENTINEL"
+
+      - name: Smoke test the exe
+        shell: bash
+        run: |
+          "./图片对比查看器.exe" &
+          EXE_PID=$!
+          sleep 5
+          curl -sf -o /dev/null http://localhost:4173/ && echo "EXE serves OK"
+          kill $EXE_PID || true
+
+      - name: Zip the exe
+        shell: pwsh
+        run: Compress-Archive -Path "图片对比查看器.exe" -DestinationPath "图片对比查看器-exe.zip" -Force
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          files: 图片对比查看器-exe.zip
+          generate_release_notes: true
