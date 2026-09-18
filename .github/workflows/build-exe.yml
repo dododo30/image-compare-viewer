@@ -58,12 +58,12 @@ jobs:
 
       - name: Zip the exe
         shell: pwsh
-        run: Compress-Archive -Path "图片对比查看器.exe" -DestinationPath "图片对比查看器-exe.zip" -Force
+        run: Copy-Item "图片对比查看器.exe" "image-compare-viewer-win-x64.exe"; Compress-Archive -Path "image-compare-viewer-win-x64.exe" -DestinationPath "image-compare-viewer-win-x64.zip" -Force
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          files: 图片对比查看器-exe.zip
+          files: image-compare-viewer-win-x64.zip
           generate_release_notes: true
