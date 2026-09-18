@@ -1,0 +1,6 @@
+node_modules/
+dist/
+sea-prep.blob
+sea-server.cjs
+sea-config.json
+*.exe
