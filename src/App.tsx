@@ -26,7 +26,6 @@ export default function App() {
   const [syncZoom, setSyncZoom] = useState(true);
   const [views, setViews] = useState<Record<string, ViewState>>({});
   const [syncedView, setSyncedView] = useState<ViewState>({ zoom: 1, panX: 0, panY: 0 });
-  const [selectMode, setSelectMode] = useState(false);
   const [region, setRegion] = useState<Rect | null>(null);
   const [stats, setStats] = useState<ImageStats | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -296,17 +295,7 @@ export default function App() {
 
         <div className="h-5 w-px bg-neutral-600 mx-1" />
 
-        <button
-          className={`text-xs px-2 py-1 rounded ${
-            selectMode ? "bg-amber-600 text-white" : "bg-neutral-700 hover:bg-neutral-600"
-          }`}
-          onClick={() => {
-            setSelectMode((s) => !s);
-            if (selectMode) setRegion(null);
-          }}
-        >
-          {selectMode ? "框选中…（点击退出）" : "框选统计"}
-        </button>
+        <span className="text-xs text-neutral-400">右键拖拽框选统计</span>
         {region && (
           <button className="text-xs px-2 py-1 rounded bg-neutral-700 hover:bg-neutral-600" onClick={() => setRegion(null)}>
             清除选区
@@ -334,7 +323,7 @@ export default function App() {
                 <div className="flex flex-col items-center justify-center text-neutral-500 col-span-full row-span-full">
                   <div className="text-6xl mb-4">📷</div>
                   <div className="text-lg">点击「打开图片」或将图片拖入窗口</div>
-                  <div className="text-sm mt-1">支持最多 6 张图片同时对比，滚轮缩放，拖动平移</div>
+                  <div className="text-sm mt-1">支持最多 6 张图片同时对比，滚轮缩放，左键拖动平移，右键框选统计</div>
                 </div>
               )}
               {visibleImages.map((img) => (
@@ -345,7 +334,6 @@ export default function App() {
                   onViewChange={(v) => setView(img.id, v)}
                   active={activeImage?.id === img.id}
                   onActivate={() => setActiveId(img.id)}
-                  selectMode={selectMode && activeImage?.id === img.id}
                   region={activeImage?.id === img.id ? region : null}
                   onRegionChange={setRegion}
                   onRemove={() => removeImage(img.id)}

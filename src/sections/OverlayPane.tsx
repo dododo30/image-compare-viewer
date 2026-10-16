@@ -12,6 +12,7 @@ type DragKind = "pan" | "split" | null;
 
 /**
  * Overlay comparison: two images stacked on one canvas.
+ * - B is drawn at the same size and position as A, so it overlays A exactly.
  * - Vertical draggable split line wipes between A (left) and B (right).
  * - Opacity slider blends B over A.
  * - Wheel zooms towards cursor, drag (outside the split handle) pans.
@@ -43,17 +44,16 @@ export default function OverlayPane({ imageA, imageB, view, onViewChange }: Prop
     ctx.fillStyle = "#1a1a1e";
     ctx.fillRect(0, 0, cw, ch);
 
-    // fit the larger of the two images so both are framed reasonably
-    const fitW = Math.max(imageA.width, imageB.width);
-    const fitH = Math.max(imageA.height, imageB.height);
-    const fit = Math.min(cw / fitW, ch / fitH, 1);
+    // fit image A to the canvas; B is drawn into the exact same rect,
+    // so B overlays A at the same size and position
+    const fit = Math.min(cw / imageA.width, ch / imageA.height, 1);
     const scale = fit * view.zoom;
+    const dw = imageA.width * scale;
+    const dh = imageA.height * scale;
+    const dx = (cw - dw) / 2 + view.panX;
+    const dy = (ch - dh) / 2 + view.panY;
 
     const drawImg = (img: LoadedImage, alpha: number, clipRight?: number, clipLeft?: number) => {
-      const dw = img.width * scale;
-      const dh = img.height * scale;
-      const dx = (cw - dw) / 2 + view.panX;
-      const dy = (ch - dh) / 2 + view.panY;
       ctx.save();
       if (clipRight !== undefined) {
         ctx.beginPath();

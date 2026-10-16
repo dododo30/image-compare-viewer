@@ -7,15 +7,14 @@ interface Props {
   onViewChange: (v: ViewState) => void;
   active: boolean;
   onActivate: () => void;
-  selectMode: boolean;
   region: Rect | null;
   onRegionChange: (r: Rect | null) => void;
   onRemove: () => void;
 }
 
 /**
- * Canvas-based image viewer pane with zoom (wheel/buttons), pan (drag),
- * and optional region selection (drag when selectMode is on).
+ * Canvas-based image viewer pane: wheel zooms towards the cursor,
+ * left-drag pans, right-drag selects a region for statistics.
  */
 export default function ImagePane({
   image,
@@ -23,7 +22,6 @@ export default function ImagePane({
   onViewChange,
   active,
   onActivate,
-  selectMode,
   region,
   onRegionChange,
   onRemove,
@@ -128,7 +126,9 @@ export default function ImagePane({
 
   const onMouseDown = (e: React.MouseEvent) => {
     onActivate();
-    if (selectMode) {
+    if (e.button === 2) {
+      // right button: box-select for statistics (active pane only)
+      if (!active) return;
       const p = toImageCoords(e.clientX, e.clientY);
       dragRef.current = {
         kind: "select",
@@ -183,14 +183,15 @@ export default function ImagePane({
   return (
     <div
       ref={containerRef}
-      className={`relative overflow-hidden rounded-md border-2 select-none ${
+      className={`relative overflow-hidden rounded-md border-2 select-none cursor-grab ${
         active ? "border-sky-400" : "border-neutral-700"
-      } ${selectMode ? "cursor-crosshair" : "cursor-grab"}`}
+      }`}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
       onWheel={onWheel}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <canvas ref={canvasRef} className="block" />
       <div className="absolute top-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded pointer-events-none max-w-[80%] truncate">
