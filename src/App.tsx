@@ -5,6 +5,7 @@ import ImageList from "@/sections/ImageList";
 import OverlayPane from "@/sections/OverlayPane";
 import StatsPanel from "@/sections/StatsPanel";
 import GammaTool from "@/sections/GammaTool";
+import CcmTool from "@/sections/CcmTool";
 import type { ExifInfo, LayoutMode, LoadedImage, Rect, ViewState } from "@/types/image";
 import { formatBytes } from "@/types/image";
 import { computeStats, type ImageStats } from "@/lib/stats";
@@ -36,6 +37,7 @@ export default function App() {
   const [overlayAId, setOverlayAId] = useState<string | null>(null);
   const [overlayBId, setOverlayBId] = useState<string | null>(null);
   const [showGamma, setShowGamma] = useState(false);
+  const [showCcm, setShowCcm] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // full-resolution ImageData cache, keyed by image id — computed once per
   // image so region drags don't re-extract pixels on every mousemove
@@ -257,6 +259,16 @@ export default function App() {
                   📈 Gamma 转换
                   <span className="text-[10px] text-neutral-500">MTK ↔ QCOM</span>
                 </button>
+                <button
+                  className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowCcm(true);
+                  }}
+                >
+                  🎨 CCM 转换
+                  <span className="text-[10px] text-neutral-500">Hex ↔ Dec</span>
+                </button>
               </div>
             </>
           )}
@@ -447,6 +459,7 @@ export default function App() {
       </div>
 
       {showGamma && <GammaTool onClose={() => setShowGamma(false)} />}
+      {showCcm && <CcmTool onClose={() => setShowCcm(false)} />}
     </div>
   );
 }
