@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import exifr from "exifr";
 import ImagePane from "@/sections/ImagePane";
+import ImageList from "@/sections/ImageList";
 import OverlayPane from "@/sections/OverlayPane";
 import StatsPanel from "@/sections/StatsPanel";
 import type { ExifInfo, LayoutMode, LoadedImage, Rect, ViewState } from "@/types/image";
@@ -33,6 +34,23 @@ export default function App() {
   const [overlayMode, setOverlayMode] = useState(false);
   const [overlayAId, setOverlayAId] = useState<string | null>(null);
   const [overlayBId, setOverlayBId] = useState<string | null>(null);
+  // full-resolution ImageData cache, keyed by image id — computed once per
+  // image so region drags don't re-extract pixels on every mousemove
+  const imageDataCache = useRef(new Map<string, ImageData>());
+
+  const getFullImageData = useCallback((img: LoadedImage): ImageData | null => {
+    const cached = imageDataCache.current.get(img.id);
+    if (cached) return cached;
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img.element, 0, 0);
+    const data = ctx.getImageData(0, 0, img.width, img.height);
+    imageDataCache.current.set(img.id, data);
+    return data;
+  }, []);
 
   const activeImage = images.find((i) => i.id === activeId) ?? images[0] ?? null;
   const overlayA = images.find((i) => i.id === overlayAId) ?? activeImage;
@@ -117,10 +135,16 @@ export default function App() {
       if (target) URL.revokeObjectURL(target.url);
       return prev.filter((i) => i.id !== id);
     });
+    imageDataCache.current.delete(id);
     setRegion(null);
   };
 
-  const visibleImages = images.slice(0, layout);
+  // the active image always takes the first grid slot so selecting from the
+  // list brings it into view; remaining slots fill in import order
+  const visibleImages = useMemo(() => {
+    if (!activeImage) return images.slice(0, layout);
+    return [activeImage, ...images.filter((i) => i.id !== activeImage.id)].slice(0, layout);
+  }, [images, activeImage, layout]);
 
   const getView = (id: string): ViewState =>
     syncZoom ? syncedView : views[id] ?? { zoom: 1, panX: 0, panY: 0 };
@@ -144,21 +168,19 @@ export default function App() {
     else setView(activeImage.id, { zoom: 1, panX: 0, panY: 0 });
   };
 
-  // compute stats for the active image / region
+  // compute stats for the active image / region.
+  // pixel data comes from the cache (extracted once per image); the stats
+  // themselves are debounced so a fast region drag doesn't block the UI.
   useEffect(() => {
     if (!activeImage) {
       setStats(null);
       return;
     }
-    const canvas = document.createElement("canvas");
-    canvas.width = activeImage.width;
-    canvas.height = activeImage.height;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
-    ctx.drawImage(activeImage.element, 0, 0);
-    const data = ctx.getImageData(0, 0, activeImage.width, activeImage.height);
-    setStats(computeStats(data, region));
-  }, [activeImage, region]);
+    const full = getFullImageData(activeImage);
+    if (!full) return;
+    const t = setTimeout(() => setStats(computeStats(full, region)), 80);
+    return () => clearTimeout(t);
+  }, [activeImage, region, getFullImageData]);
 
   // clear region when switching image
   useEffect(() => {
@@ -304,6 +326,14 @@ export default function App() {
       </header>
 
       <div className="flex flex-1 min-h-0">
+        {/* image list */}
+        <ImageList
+          images={images}
+          activeId={activeImage?.id ?? null}
+          onSelect={setActiveId}
+          onRemove={removeImage}
+        />
+
         {/* image grid */}
         <main className={`flex-1 grid gap-1 p-1 min-w-0 ${overlayMode ? "grid-cols-1 grid-rows-1" : gridClass}`}>
           {overlayMode ? (

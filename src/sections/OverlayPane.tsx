@@ -34,13 +34,17 @@ export default function OverlayPane({ imageA, imageB, view, onViewChange }: Prop
     const cw = container.clientWidth;
     const ch = container.clientHeight;
     if (cw === 0 || ch === 0) return;
-    canvas.width = cw * dpr;
-    canvas.height = ch * dpr;
+    // only reallocate the backing store when the size actually changes
+    const pw = Math.round(cw * dpr);
+    const ph = Math.round(ch * dpr);
+    if (canvas.width !== pw) canvas.width = pw;
+    if (canvas.height !== ph) canvas.height = ph;
     canvas.style.width = `${cw}px`;
     canvas.style.height = `${ch}px`;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.scale(dpr, dpr);
+    // reset to a known transform — canvas state persists across redraws
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#1a1a1e";
     ctx.fillRect(0, 0, cw, ch);
 
