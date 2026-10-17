@@ -4,6 +4,7 @@ import ImagePane from "@/sections/ImagePane";
 import ImageList from "@/sections/ImageList";
 import OverlayPane from "@/sections/OverlayPane";
 import StatsPanel from "@/sections/StatsPanel";
+import GammaTool from "@/sections/GammaTool";
 import type { ExifInfo, LayoutMode, LoadedImage, Rect, ViewState } from "@/types/image";
 import { formatBytes } from "@/types/image";
 import { computeStats, type ImageStats } from "@/lib/stats";
@@ -34,6 +35,8 @@ export default function App() {
   const [overlayMode, setOverlayMode] = useState(false);
   const [overlayAId, setOverlayAId] = useState<string | null>(null);
   const [overlayBId, setOverlayBId] = useState<string | null>(null);
+  const [showGamma, setShowGamma] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // full-resolution ImageData cache, keyed by image id — computed once per
   // image so region drags don't re-extract pixels on every mousemove
   const imageDataCache = useRef(new Map<string, ImageData>());
@@ -225,7 +228,39 @@ export default function App() {
     >
       {/* toolbar */}
       <header className="flex items-center gap-2 px-3 py-2 bg-neutral-800 border-b border-neutral-700 flex-wrap">
-        <span className="font-bold text-sm mr-2">🖼️ 图片对比查看器</span>
+        {/* 功能菜单：新工具在此添加条目 */}
+        <div className="relative">
+          <button
+            className="font-bold text-sm flex items-center gap-1.5 hover:bg-neutral-700 rounded px-2 py-1"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            🖼️ 图片对比查看器
+            <span className="text-[10px] text-neutral-400">{menuOpen ? "▴" : "▾"}</span>
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} onContextMenu={(e) => e.preventDefault()} />
+              <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-neutral-800 border border-neutral-700 rounded shadow-xl py-1">
+                <button
+                  className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  🖼️ 图片查看器
+                </button>
+                <button
+                  className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowGamma(true);
+                  }}
+                >
+                  📈 Gamma 转换
+                  <span className="text-[10px] text-neutral-500">MTK ↔ QCOM</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <button
           className="bg-sky-600 hover:bg-sky-500 text-white text-sm px-3 py-1 rounded"
           onClick={() => fileInputRef.current?.click()}
@@ -410,6 +445,8 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      {showGamma && <GammaTool onClose={() => setShowGamma(false)} />}
     </div>
   );
 }
