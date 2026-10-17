@@ -17,13 +17,19 @@ export interface ExifInfo {
 export interface LoadedImage {
   id: string;
   file: File;
-  url: string; // object URL
+  url: string; // object URL 或缩略图 data URL
   name: string;
   size: number; // bytes
   width: number;
   height: number;
-  element: HTMLImageElement;
+  element: HTMLImageElement | HTMLCanvasElement;
   exif: ExifInfo;
+  /** RAW 源数据信息（仅 RAW/YUV 导入的图像存在） */
+  rawInfo?: {
+    format: string; // 如 "MIPI RAW10 / RGGB"
+    bitDepth: number; // 0 表示 YUV
+    channelHist?: { r: number[]; gr: number[]; gb: number[]; b: number[] }; // 256 bin，仅 RAW
+  };
 }
 
 export interface Rect {

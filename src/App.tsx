@@ -6,9 +6,14 @@ import OverlayPane from "@/sections/OverlayPane";
 import StatsPanel from "@/sections/StatsPanel";
 import GammaTool from "@/sections/GammaTool";
 import CcmTool from "@/sections/CcmTool";
+import RawImportDialog from "@/sections/RawImportDialog";
+import RawChannelHist from "@/sections/RawChannelHist";
+import RawLab from "@/sections/RawLab";
+import { useImportFormat, type DecodedImage } from "@/lib/rawImport";
 import type { ExifInfo, LayoutMode, LoadedImage, Rect, ViewState } from "@/types/image";
 import { formatBytes } from "@/types/image";
 import { computeStats, type ImageStats } from "@/lib/stats";
+import { makeThumbnail } from "@/lib/raw";
 
 let idCounter = 0;
 
@@ -38,6 +43,9 @@ export default function App() {
   const [overlayBId, setOverlayBId] = useState<string | null>(null);
   const [showGamma, setShowGamma] = useState(false);
   const [showCcm, setShowCcm] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const [rawFmt, setRawFmt] = useImportFormat();
+  const [page, setPage] = useState<"viewer" | "rawlab">("viewer");
   const [menuOpen, setMenuOpen] = useState(false);
   // full-resolution ImageData cache, keyed by image id — computed once per
   // image so region drags don't re-extract pixels on every mousemove
@@ -144,6 +152,27 @@ export default function App() {
     setRegion(null);
   };
 
+  // RAW/YUV 导入：解码结果包装为 LoadedImage 进入现有管线
+  const importRawImages = (decoded: DecodedImage[]) => {
+    const loaded: LoadedImage[] = decoded.map((d) => ({
+      id: `img-${++idCounter}`,
+      file: new File([], d.name),
+      url: makeThumbnail(d.canvas),
+      name: d.name,
+      size: d.size,
+      width: d.width,
+      height: d.height,
+      element: d.canvas,
+      exif: {},
+      rawInfo: d.rawInfo,
+    }));
+    setImages((prev) => {
+      const next = [...prev, ...loaded];
+      if (!activeId && next.length > 0) setActiveId(next[0].id);
+      return next;
+    });
+  };
+
   // the active image always takes the first grid slot so selecting from the
   // list brings it into view; remaining slots fill in import order
   const visibleImages = useMemo(() => {
@@ -225,9 +254,13 @@ export default function App() {
   return (
     <div
       className="h-screen w-screen bg-neutral-900 text-neutral-100 flex flex-col overflow-hidden"
-      onDrop={onDrop}
+      onDrop={page === "viewer" ? onDrop : undefined}
       onDragOver={(e) => e.preventDefault()}
     >
+      {page === "rawlab" ? (
+        <RawLab onExit={() => setPage("viewer")} />
+      ) : (
+        <>
       {/* toolbar */}
       <header className="flex items-center gap-2 px-3 py-2 bg-neutral-800 border-b border-neutral-700 flex-wrap">
         {/* 功能菜单：新工具在此添加条目 */}
@@ -269,6 +302,16 @@ export default function App() {
                   🎨 CCM 转换
                   <span className="text-[10px] text-neutral-500">Hex ↔ Dec</span>
                 </button>
+                <button
+                  className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPage("rawlab");
+                  }}
+                >
+                  🔬 RAW 实验室
+                  <span className="text-[10px] text-neutral-500">ISP 参数实时调试</span>
+                </button>
               </div>
             </>
           )}
@@ -291,6 +334,13 @@ export default function App() {
           }}
         />
         <span className="text-xs text-neutral-400">（可多选，或直接拖入窗口）</span>
+        <button
+          className="bg-neutral-700 hover:bg-neutral-600 text-xs px-2 py-1 rounded"
+          onClick={() => setShowRaw(true)}
+          title="导入 Bayer RAW / YUV 裸数据"
+        >
+          RAW/YUV
+        </button>
 
         <div className="h-5 w-px bg-neutral-600 mx-1" />
 
@@ -442,7 +492,16 @@ export default function App() {
                 <InfoRow label="闪光灯" value={activeImage.exif.flash} />
                 <InfoRow label="白平衡" value={activeImage.exif.whiteBalance} />
                 <InfoRow label="色彩空间" value={activeImage.exif.colorSpace} />
+                {activeImage.rawInfo && (
+                  <InfoRow label="数据格式" value={activeImage.rawInfo.format} />
+                )}
               </section>
+              {activeImage.rawInfo?.channelHist && (
+                <section>
+                  <div className="text-sm font-semibold mb-1 text-neutral-200">RAW 通道直方图</div>
+                  <RawChannelHist hist={activeImage.rawInfo.channelHist} />
+                </section>
+              )}
               <section>
                 <div className="text-sm font-semibold mb-1 text-neutral-200">图像统计</div>
                 <StatsPanel
@@ -457,9 +516,19 @@ export default function App() {
           )}
         </aside>
       </div>
+        </>
+      )}
 
       {showGamma && <GammaTool onClose={() => setShowGamma(false)} />}
       {showCcm && <CcmTool onClose={() => setShowCcm(false)} />}
+      {showRaw && (
+        <RawImportDialog
+          fmt={rawFmt}
+          onFmtChange={setRawFmt}
+          onClose={() => setShowRaw(false)}
+          onImport={importRawImages}
+        />
+      )}
     </div>
   );
 }
