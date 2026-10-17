@@ -4,8 +4,8 @@ import ImagePane from "@/sections/ImagePane";
 import ImageList from "@/sections/ImageList";
 import OverlayPane from "@/sections/OverlayPane";
 import StatsPanel from "@/sections/StatsPanel";
-import GammaTool from "@/sections/GammaTool";
-import CcmTool from "@/sections/CcmTool";
+import GammaLab from "@/sections/GammaLab";
+import CcmLab from "@/sections/CcmLab";
 import RawImportDialog from "@/sections/RawImportDialog";
 import RawChannelHist from "@/sections/RawChannelHist";
 import RawLab from "@/sections/RawLab";
@@ -41,11 +41,9 @@ export default function App() {
   const [overlayMode, setOverlayMode] = useState(false);
   const [overlayAId, setOverlayAId] = useState<string | null>(null);
   const [overlayBId, setOverlayBId] = useState<string | null>(null);
-  const [showGamma, setShowGamma] = useState(false);
-  const [showCcm, setShowCcm] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [rawFmt, setRawFmt] = useImportFormat();
-  const [page, setPage] = useState<"viewer" | "rawlab">("viewer");
+  const [page, setPage] = useState<"viewer" | "rawlab" | "gammalab" | "ccmlab">("viewer");
   const [menuOpen, setMenuOpen] = useState(false);
   // full-resolution ImageData cache, keyed by image id — computed once per
   // image so region drags don't re-extract pixels on every mousemove
@@ -259,6 +257,10 @@ export default function App() {
     >
       {page === "rawlab" ? (
         <RawLab onExit={() => setPage("viewer")} />
+      ) : page === "gammalab" ? (
+        <GammaLab onExit={() => setPage("viewer")} />
+      ) : page === "ccmlab" ? (
+        <CcmLab onExit={() => setPage("viewer")} />
       ) : (
         <>
       {/* toolbar */}
@@ -286,7 +288,7 @@ export default function App() {
                   className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
                   onClick={() => {
                     setMenuOpen(false);
-                    setShowGamma(true);
+                    setPage("gammalab");
                   }}
                 >
                   📈 Gamma 转换
@@ -296,7 +298,7 @@ export default function App() {
                   className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
                   onClick={() => {
                     setMenuOpen(false);
-                    setShowCcm(true);
+                    setPage("ccmlab");
                   }}
                 >
                   🎨 CCM 转换
@@ -519,8 +521,6 @@ export default function App() {
         </>
       )}
 
-      {showGamma && <GammaTool onClose={() => setShowGamma(false)} />}
-      {showCcm && <CcmTool onClose={() => setShowCcm(false)} />}
       {showRaw && (
         <RawImportDialog
           fmt={rawFmt}
