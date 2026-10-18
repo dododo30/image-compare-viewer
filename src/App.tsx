@@ -9,6 +9,7 @@ import CcmLab from "@/sections/CcmLab";
 import RawImportDialog from "@/sections/RawImportDialog";
 import RawChannelHist from "@/sections/RawChannelHist";
 import RawLab from "@/sections/RawLab";
+import AnalysisLab from "@/sections/AnalysisLab";
 import { useImportFormat, type DecodedImage } from "@/lib/rawImport";
 import type { ExifInfo, LayoutMode, LoadedImage, Rect, ViewState } from "@/types/image";
 import { formatBytes } from "@/types/image";
@@ -43,7 +44,7 @@ export default function App() {
   const [overlayBId, setOverlayBId] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [rawFmt, setRawFmt] = useImportFormat();
-  const [page, setPage] = useState<"viewer" | "rawlab" | "gammalab" | "ccmlab">("viewer");
+  const [page, setPage] = useState<"viewer" | "rawlab" | "gammalab" | "ccmlab" | "analysis">("viewer");
   const [menuOpen, setMenuOpen] = useState(false);
   // full-resolution ImageData cache, keyed by image id — computed once per
   // image so region drags don't re-extract pixels on every mousemove
@@ -261,6 +262,8 @@ export default function App() {
         <GammaLab onExit={() => setPage("viewer")} />
       ) : page === "ccmlab" ? (
         <CcmLab onExit={() => setPage("viewer")} />
+      ) : page === "analysis" ? (
+        <AnalysisLab onExit={() => setPage("viewer")} />
       ) : (
         <>
       {/* toolbar */}
@@ -303,6 +306,16 @@ export default function App() {
                 >
                   🎨 CCM 转换
                   <span className="text-[10px] text-neutral-500">Hex ↔ Dec</span>
+                </button>
+                <button
+                  className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPage("analysis");
+                  }}
+                >
+                  📊 图像分析
+                  <span className="text-[10px] text-neutral-500">差异 / shading / 裁切 / 噪声</span>
                 </button>
                 <button
                   className="w-full text-left text-xs px-3 py-2 hover:bg-neutral-700 flex items-center gap-2"
