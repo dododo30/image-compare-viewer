@@ -9,6 +9,7 @@ import {
   MTK_INPUT_LEN,
   QCOM_INPUT_LEN,
 } from "@/lib/gamma";
+import { pqCurve, hlgCurve } from "@/lib/hdr";
 
 interface Curves {
   inX: number[];
@@ -146,6 +147,20 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
   const togglePreset = (v: number) => {
     const next = cmpGammas.includes(v) ? cmpGammas.filter((g) => g !== v) : [...cmpGammas, v];
     setCmpText(next.join(", "));
+  };
+
+  // 添加 HDR 参考曲线（PQ / HLG）为对比数据
+  const addHdrCurve = (kind: "pq" | "hlg") => {
+    setCmpErr("");
+    const label = kind === "pq" ? "PQ（ST 2084）" : "HLG（ARIB B67）";
+    if (cmpTables.some((t) => t.label === label)) return;
+    if (cmpTables.length >= TABLE_COLORS.length) {
+      setCmpErr(`最多 ${TABLE_COLORS.length} 条对比数据`);
+      return;
+    }
+    const c = kind === "pq" ? pqCurve() : hlgCurve();
+    const id = ++cmpIdRef.current;
+    setCmpTables((prev) => [...prev, { id, label, xs: c.xs, ys: c.ys }]);
   };
 
   // 大画布绘制（随窗口缩放）
@@ -454,12 +469,26 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
                 if (e.ctrlKey && e.key === "Enter") addCmpTable();
               }}
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 className="bg-neutral-700 hover:bg-neutral-600 text-xs px-3 py-1 rounded"
                 onClick={addCmpTable}
               >
                 添加对比
+              </button>
+              <button
+                className="bg-neutral-700 hover:bg-neutral-600 text-[10px] px-2 py-1 rounded"
+                onClick={() => addHdrCurve("pq")}
+                title="PQ：HDR10 / HDR10+ / 杜比视界的 EOTF（SMPTE ST 2084），按 10000 nits 归一化"
+              >
+                + PQ (ST 2084)
+              </button>
+              <button
+                className="bg-neutral-700 hover:bg-neutral-600 text-[10px] px-2 py-1 rounded"
+                onClick={() => addHdrCurve("hlg")}
+                title="HLG：ARIB STD-B67，场景相对（暗部 gamma 0.5 + 亮部对数）"
+              >
+                + HLG
               </button>
               {cmpErr && <span className="text-xs text-red-400">{cmpErr}</span>}
             </div>
