@@ -28,6 +28,16 @@ const CMP_COLORS = [
 
 const CMP_PRESETS = [1.6, 1.8, 2.0, 2.2, 2.4];
 
+/** 对比数据表配色（实线，与标准 gamma 虚线区分） */
+const TABLE_COLORS = ["#facc15", "#4ade80", "#c084fc", "#22d3ee", "#fb923c", "#f472b6"];
+
+interface CmpTable {
+  id: number;
+  label: string;
+  xs: number[];
+  ys: number[];
+}
+
 /** 解析对比 gamma 值列表：去重、排序、限幅、上限 12 条 */
 function parseCompareGammas(text: string): number[] {
   const seen = new Set<number>();
@@ -54,8 +64,41 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
   const [copied, setCopied] = useState(false);
   const [curves, setCurves] = useState<Curves | null>(null);
   const [cmpText, setCmpText] = useState("");
+  const [cmpTables, setCmpTables] = useState<CmpTable[]>([]);
+  const [cmpTableText, setCmpTableText] = useState("");
+  const [cmpErr, setCmpErr] = useState("");
+  const cmpIdRef = useRef(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  // 添加一条自定义对比 gamma 表（256 组按 MTK X 轴，257 组按 QCOM X 轴）
+  const addCmpTable = () => {
+    setCmpErr("");
+    const { values, invalid } = parseDecimalList(cmpTableText);
+    if (invalid.length > 0) {
+      setCmpErr(`无法识别的内容：${invalid.slice(0, 3).join("、")}${invalid.length > 3 ? " …" : ""}`);
+      return;
+    }
+    if (values.length !== 256 && values.length !== 257) {
+      setCmpErr(`输入 ${values.length} 组，需要 256（MTK）或 257（QCOM）组`);
+      return;
+    }
+    if (cmpTables.length >= TABLE_COLORS.length) {
+      setCmpErr(`最多 ${TABLE_COLORS.length} 条对比数据`);
+      return;
+    }
+    const id = ++cmpIdRef.current;
+    setCmpTables((prev) => [
+      ...prev,
+      {
+        id,
+        label: `对比${id}（${values.length === 257 ? "QCOM" : "MTK"}）`,
+        xs: values.length === 257 ? qcomXPoints() : mtkXPoints(),
+        ys: values,
+      },
+    ]);
+    setCmpTableText("");
+  };
 
   const needLen = mode === "mtk2qcom" ? MTK_INPUT_LEN : QCOM_INPUT_LEN;
 
@@ -124,7 +167,7 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
     ctx.fillStyle = "#141417";
     ctx.fillRect(0, 0, cw, ch);
 
-    const ml = 46, mr = 18, mt = 50, mb = 34;
+    const ml = 46, mr = 18, mt = 64, mb = 34;
     const pw = cw - ml - mr;
     const ph = ch - mt - mb;
     const px = (x: number) => ml + (x / 1023) * pw;
@@ -181,7 +224,23 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
     });
     ctx.setLineDash([]);
 
-    // 图例（两行）
+    // 自定义对比数据表（实线）
+    const drawPolyline = (xs: number[], ys: number[], color: string, width: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      xs.forEach((x, i) => {
+        const y = Math.max(0, Math.min(1023, ys[i]));
+        if (i === 0) ctx.moveTo(px(x), py(y));
+        else ctx.lineTo(px(x), py(y));
+      });
+      ctx.stroke();
+    };
+    cmpTables.forEach((t, ti) => {
+      drawPolyline(t.xs, t.ys, TABLE_COLORS[ti % TABLE_COLORS.length], 1.8);
+    });
+
+    // 图例（三行）
     ctx.font = "12px sans-serif";
     let lx = ml + 10;
     if (curves) {
@@ -197,6 +256,10 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
       ctx.fillStyle = CMP_COLORS[gi % CMP_COLORS.length];
       ctx.fillText(`╌ γ${g}`, ml + 10 + gi * 62, 34);
     });
+    cmpTables.forEach((t, ti) => {
+      ctx.fillStyle = TABLE_COLORS[ti % TABLE_COLORS.length];
+      ctx.fillText(`▪ ${t.label}`, ml + 10 + ti * 96, 52);
+    });
 
     if (!curves) {
       ctx.fillStyle = "#555";
@@ -205,19 +268,9 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
       return;
     }
 
-    const drawCurve = (xs: number[], ys: number[], color: string) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      xs.forEach((x, i) => {
-        if (i === 0) ctx.moveTo(px(x), py(ys[i]));
-        else ctx.lineTo(px(x), py(ys[i]));
-      });
-      ctx.stroke();
-    };
-    drawCurve(curves.inX, curves.inY, "#38bdf8");
-    drawCurve(curves.outX, curves.outY, "#f472b6");
-  }, [curves, cmpGammas]);
+    drawPolyline(curves.inX, curves.inY, "#38bdf8", 2);
+    drawPolyline(curves.outX, curves.outY, "#f472b6", 2);
+  }, [curves, cmpGammas, cmpTables]);
 
   useEffect(() => {
     draw();
@@ -308,6 +361,10 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
                 setError("");
                 setCurves(null);
                 setCopied(false);
+                setCmpText("");
+                setCmpTables([]);
+                setCmpTableText("");
+                setCmpErr("");
               }}
             >
               清空
@@ -370,6 +427,61 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
               ))}
             </div>
             <p className="text-[10px] text-neutral-600">虚线为标准幂曲线 y=x^(1/γ)，最多 12 条，与转换结果叠加对比</p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-neutral-400">对比 Gamma 数据（{cmpTables.length}/{TABLE_COLORS.length}）</span>
+              {cmpTables.length > 0 && (
+                <button
+                  className="text-[10px] bg-neutral-700 hover:bg-neutral-600 px-2 py-0.5 rounded"
+                  onClick={() => {
+                    setCmpTables([]);
+                    setCmpTableText("");
+                    setCmpErr("");
+                  }}
+                >
+                  全部移除
+                </button>
+              )}
+            </div>
+            <textarea
+              className="w-full h-20 bg-neutral-900 border border-neutral-700 rounded p-2 text-xs font-mono text-neutral-100 resize-y"
+              placeholder="粘贴要对比的 gamma 表（256 组按 MTK X 轴、257 组按 QCOM X 轴），空格/逗号/换行分隔"
+              value={cmpTableText}
+              onChange={(e) => setCmpTableText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.ctrlKey && e.key === "Enter") addCmpTable();
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                className="bg-neutral-700 hover:bg-neutral-600 text-xs px-3 py-1 rounded"
+                onClick={addCmpTable}
+              >
+                添加对比
+              </button>
+              {cmpErr && <span className="text-xs text-red-400">{cmpErr}</span>}
+            </div>
+            {cmpTables.map((t, ti) => (
+              <div key={t.id} className="flex items-center justify-between text-xs bg-neutral-900 border border-neutral-700 rounded px-2 py-1">
+                <span className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded-sm"
+                    style={{ background: TABLE_COLORS[ti % TABLE_COLORS.length] }}
+                  />
+                  <span className="text-neutral-300">{t.label}</span>
+                  <span className="text-[10px] text-neutral-600">{t.ys.length} 组</span>
+                </span>
+                <button
+                  className="text-neutral-500 hover:text-red-400 px-1"
+                  onClick={() => setCmpTables((prev) => prev.filter((x) => x.id !== t.id))}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <p className="text-[10px] text-neutral-600">实线为自定义数据表，可叠加多条与转换结果对比</p>
           </div>
 
           <p className="text-[10px] text-neutral-500 leading-relaxed">
