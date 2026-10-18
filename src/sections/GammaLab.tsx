@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   mtkToQcom,
   qcomToMtk,
@@ -19,6 +19,31 @@ interface Curves {
 
 type Mode = "mtk2qcom" | "qcom2mtk";
 
+/** 对比曲线配色（与输入蓝/输出粉区分） */
+const CMP_COLORS = [
+  "#a78bfa", "#34d399", "#fbbf24", "#fb923c",
+  "#e879f9", "#22d3ee", "#4ade80", "#f87171",
+  "#c084fc", "#94a3b8", "#fde047", "#f9a8d4",
+];
+
+const CMP_PRESETS = [1.6, 1.8, 2.0, 2.2, 2.4];
+
+/** 解析对比 gamma 值列表：去重、排序、限幅、上限 12 条 */
+function parseCompareGammas(text: string): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const tok of text.split(/[,，\s]+/).filter(Boolean)) {
+    const v = parseFloat(tok);
+    if (isNaN(v) || v < 0.3 || v > 10) continue;
+    const r = Math.round(v * 100) / 100;
+    if (!seen.has(r)) {
+      seen.add(r);
+      out.push(r);
+    }
+  }
+  return out.sort((a, b) => a - b).slice(0, 12);
+}
+
 /** Gamma 转换页：大曲线可视化 + 右侧输入/输出参数 */
 export default function GammaLab({ onExit }: { onExit: () => void }) {
   const [mode, setMode] = useState<Mode>("mtk2qcom");
@@ -28,6 +53,7 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [curves, setCurves] = useState<Curves | null>(null);
+  const [cmpText, setCmpText] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -72,6 +98,13 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
     }
   };
 
+  const cmpGammas = useMemo(() => parseCompareGammas(cmpText), [cmpText]);
+
+  const togglePreset = (v: number) => {
+    const next = cmpGammas.includes(v) ? cmpGammas.filter((g) => g !== v) : [...cmpGammas, v];
+    setCmpText(next.join(", "));
+  };
+
   // 大画布绘制（随窗口缩放）
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -91,7 +124,7 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
     ctx.fillStyle = "#141417";
     ctx.fillRect(0, 0, cw, ch);
 
-    const ml = 46, mr = 18, mt = 34, mb = 34;
+    const ml = 46, mr = 18, mt = 50, mb = 34;
     const pw = cw - ml - mr;
     const ph = ch - mt - mb;
     const px = (x: number) => ml + (x / 1023) * pw;
@@ -125,19 +158,52 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
     ctx.fillText("输出 →", 0, 0);
     ctx.restore();
 
-    if (!curves) {
-      ctx.fillStyle = "#555";
-      ctx.font = "13px sans-serif";
-      ctx.fillText("在右侧粘贴数据并点「转换」，此处显示输入/输出 gamma 曲线", ml + 20, mt + ph / 2);
-      return;
-    }
-
     // y=x 参考
     ctx.strokeStyle = "#44444c";
     ctx.beginPath();
     ctx.moveTo(px(0), py(0));
     ctx.lineTo(px(1023), py(1023));
     ctx.stroke();
+
+    // 对比 gamma 曲线（标准幂曲线，虚线）
+    cmpGammas.forEach((g, gi) => {
+      ctx.strokeStyle = CMP_COLORS[gi % CMP_COLORS.length];
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      for (let i = 0; i <= 256; i++) {
+        const x = (i / 256) * 1023;
+        const y = 1023 * Math.pow(x / 1023, 1 / g);
+        if (i === 0) ctx.moveTo(px(x), py(y));
+        else ctx.lineTo(px(x), py(y));
+      }
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // 图例（两行）
+    ctx.font = "12px sans-serif";
+    let lx = ml + 10;
+    if (curves) {
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillText("━ 输入", lx, 16);
+      ctx.fillStyle = "#f472b6";
+      ctx.fillText("━ 输出", lx + 62, 16);
+      lx += 124;
+    }
+    ctx.fillStyle = "#888";
+    ctx.fillText("┅ y=x", lx, 16);
+    cmpGammas.forEach((g, gi) => {
+      ctx.fillStyle = CMP_COLORS[gi % CMP_COLORS.length];
+      ctx.fillText(`╌ γ${g}`, ml + 10 + gi * 62, 34);
+    });
+
+    if (!curves) {
+      ctx.fillStyle = "#555";
+      ctx.font = "13px sans-serif";
+      ctx.fillText("在右侧粘贴数据并点「转换」，此处显示输入/输出 gamma 曲线", ml + 20, mt + ph / 2);
+      return;
+    }
 
     const drawCurve = (xs: number[], ys: number[], color: string) => {
       ctx.strokeStyle = color;
@@ -151,16 +217,7 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
     };
     drawCurve(curves.inX, curves.inY, "#38bdf8");
     drawCurve(curves.outX, curves.outY, "#f472b6");
-
-    // 图例
-    ctx.font = "12px sans-serif";
-    ctx.fillStyle = "#38bdf8";
-    ctx.fillText("━ 输入", ml + 10, mt - 12);
-    ctx.fillStyle = "#f472b6";
-    ctx.fillText("━ 输出", ml + 70, mt - 12);
-    ctx.fillStyle = "#888";
-    ctx.fillText("┅ y=x", ml + 130, mt - 12);
-  }, [curves]);
+  }, [curves, cmpGammas]);
 
   useEffect(() => {
     draw();
@@ -279,6 +336,41 @@ export default function GammaLab({ onExit }: { onExit: () => void }) {
               />
             </div>
           )}
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-neutral-400">对比 Gamma 曲线（{cmpGammas.length}/12）</span>
+              {cmpGammas.length > 0 && (
+                <button
+                  className="text-[10px] bg-neutral-700 hover:bg-neutral-600 px-2 py-0.5 rounded"
+                  onClick={() => setCmpText("")}
+                >
+                  清除
+                </button>
+              )}
+            </div>
+            <input
+              type="text"
+              className="w-full bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs font-mono text-neutral-100"
+              placeholder="如：1.6, 2.2, 2.4（逗号或空格分隔）"
+              value={cmpText}
+              onChange={(e) => setCmpText(e.target.value)}
+            />
+            <div className="flex gap-1 flex-wrap">
+              {CMP_PRESETS.map((v) => (
+                <button
+                  key={v}
+                  className={`text-[10px] px-2 py-0.5 rounded ${
+                    cmpGammas.includes(v) ? "bg-sky-600 text-white" : "bg-neutral-700 hover:bg-neutral-600"
+                  }`}
+                  onClick={() => togglePreset(v)}
+                >
+                  γ{v}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-neutral-600">虚线为标准幂曲线 y=x^(1/γ)，最多 12 条，与转换结果叠加对比</p>
+          </div>
 
           <p className="text-[10px] text-neutral-500 leading-relaxed">
             转换算法与原 Python 版位精确一致（QCOM→MTK 使用 PCHIP 插值）。
