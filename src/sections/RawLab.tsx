@@ -3,7 +3,7 @@ import ImagePane from "@/sections/ImagePane";
 import RawImportDialog from "@/sections/RawImportDialog";
 import RawChannelHist from "@/sections/RawChannelHist";
 import StatsPanel from "@/sections/StatsPanel";
-import { demosaicBilinear, rgbaToCanvas, type BayerPattern } from "@/lib/raw";
+import { demosaicBilinear, rgbaToCanvas, subtractOb, type BayerPattern } from "@/lib/raw";
 import { useImportFormat, decodeFiles, type DecodedImage } from "@/lib/rawImport";
 import {
   applyIspFromPlanes,
@@ -26,33 +26,35 @@ interface LabSource {
   bits: number; // 0 = YUV
   raw?: { vals: Uint16Array; pattern: BayerPattern; bits: number };
   yuvRgba?: Uint8ClampedArray<ArrayBuffer>;
-  planes?: { r: Float32Array; g: Float32Array; b: Float32Array };
   radial: Float32Array;
 }
 
 let labId = 0;
 
 /** 数值输入框：聚焦时可输入，2 位小数，失焦/回车提交并限幅 */
-function NumBox({ value, min, max, onChange }: {
+function NumBox({ value, min, max, onChange, decimals = 2, step }: {
   value: number;
   min: number;
   max: number;
   onChange: (v: number) => void;
+  decimals?: number;
+  step?: number;
 }) {
   const [text, setText] = useState<string | null>(null);
+  const fmt = (v: number) => v.toFixed(decimals);
   return (
     <input
       type="text"
       inputMode="decimal"
       className="w-14 bg-neutral-800 border border-neutral-700 rounded px-1 py-0.5 text-[11px] font-mono text-right text-neutral-100"
-      value={text ?? value.toFixed(2)}
+      value={text ?? fmt(value)}
       onFocus={(e) => {
-        setText(value.toFixed(2));
+        setText(fmt(value));
         e.target.select();
       }}
       onChange={(e) => {
         setText(e.target.value);
-        const v = parseFloat(e.target.value);
+        const v = step ? Math.round(parseFloat(e.target.value)) : parseFloat(e.target.value);
         if (!isNaN(v)) onChange(Math.min(max, Math.max(min, v)));
       }}
       onBlur={() => setText(null)}
@@ -113,6 +115,12 @@ export default function RawLab({ onExit }: { onExit: () => void }) {
   const [dropBusy, setDropBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const processedRef = useRef<ImageData | null>(null);
+  // OB（黑电平）扣除：按物理通道 R/Gr/Gb/B，分正负，依 Bayer 排列映射
+  const [ob, setOb] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  // 去马赛克结果缓存：按 (源, OB) 签名，OB 变化才重算
+  const planesCache = useRef(
+    new Map<string, { key: string; vals: Uint16Array; planes: { r: Float32Array; g: Float32Array; b: Float32Array } }>()
+  );
 
   const active = sources.find((s) => s.id === activeId) ?? null;
 
@@ -140,27 +148,24 @@ export default function RawLab({ onExit }: { onExit: () => void }) {
   };
 
   const importSources = (decoded: DecodedImage[]) => {
-    const news: LabSource[] = decoded.map((d) => {
-      const src: LabSource = {
-        id: `lab-${++labId}`,
-        name: d.name,
-        width: d.width,
-        height: d.height,
-        format: d.rawInfo.format,
-        bits: d.rawInfo.bitDepth,
-        raw: d.raw,
-        yuvRgba: d.yuvRgba,
-        radial: radialMap(d.width, d.height),
-      };
-      if (d.raw) src.planes = demosaicBilinear(d.raw.vals, d.width, d.height, d.raw.pattern);
-      return src;
-    });
+    const news: LabSource[] = decoded.map((d) => ({
+      id: `lab-${++labId}`,
+      name: d.name,
+      width: d.width,
+      height: d.height,
+      format: d.rawInfo.format,
+      bits: d.rawInfo.bitDepth,
+      raw: d.raw,
+      yuvRgba: d.yuvRgba,
+      radial: radialMap(d.width, d.height),
+    }));
     setSources((prev) => [...prev, ...news]);
     if (!activeId) setActiveId(news[0].id);
   };
 
   const removeSource = (id: string) => {
     setSources((prev) => prev.filter((s) => s.id !== id));
+    planesCache.current.delete(id);
     if (activeId === id) {
       setActiveId(null);
       setDisplay(null);
@@ -174,9 +179,29 @@ export default function RawLab({ onExit }: { onExit: () => void }) {
     const t = setTimeout(() => {
       let proc;
       const maxVal = (1 << active.bits) - 1;
-      if (active.raw && active.planes) {
-        proc = applyIspFromPlanes(active.planes, maxVal, active.width, active.height, params, active.radial);
-        setHist(rawGainedHistograms(active.raw.vals, active.width, active.height, active.raw.pattern, maxVal, params, active.radial));
+      if (active.raw) {
+        // OB 扣除在去马赛克前进行；结果按 (源, OB) 缓存
+        const obKey = ob.join(",");
+        let entry = planesCache.current.get(active.id);
+        if (!entry || entry.key !== obKey) {
+          const hasOb = ob.some((v) => v !== 0);
+          const vals = hasOb
+            ? subtractOb(active.raw.vals, active.width, active.height, active.raw.pattern, ob, maxVal)
+            : active.raw.vals;
+          entry = {
+            key: obKey,
+            vals,
+            planes: demosaicBilinear(vals, active.width, active.height, active.raw.pattern),
+          };
+          planesCache.current.set(active.id, entry);
+          // 缓存上限：超过 3 个源淘汰最早的
+          if (planesCache.current.size > 3) {
+            const oldest = planesCache.current.keys().next().value;
+            if (oldest) planesCache.current.delete(oldest);
+          }
+        }
+        proc = applyIspFromPlanes(entry.planes, maxVal, active.width, active.height, params, active.radial);
+        setHist(rawGainedHistograms(entry.vals, active.width, active.height, active.raw.pattern, maxVal, params, active.radial));
       } else if (active.yuvRgba) {
         proc = applyIspFromRgba(active.yuvRgba, active.width, active.height, params, active.radial);
         setHist(undefined);
@@ -199,7 +224,7 @@ export default function RawLab({ onExit }: { onExit: () => void }) {
       });
     }, 180);
     return () => clearTimeout(t);
-  }, [active, params]);
+  }, [active, params, ob]);
 
   // 统计（防抖）
   useEffect(() => {
@@ -313,6 +338,47 @@ export default function RawLab({ onExit }: { onExit: () => void }) {
 
         {/* params panel */}
         <aside className="w-80 shrink-0 bg-neutral-800/60 border-l border-neutral-700 overflow-y-auto p-3 space-y-4">
+          {/* OB（黑电平）扣除 */}
+          <section className="space-y-2">
+            <div className="text-sm font-semibold text-neutral-200 flex items-center justify-between">
+              OB（黑电平）
+              <button
+                className="text-[10px] bg-neutral-700 hover:bg-neutral-600 px-2 py-0.5 rounded font-normal"
+                onClick={() => setOb([0, 0, 0, 0])}
+              >
+                清零
+              </button>
+            </div>
+            {active && active.bits === 0 ? (
+              <p className="text-[10px] text-neutral-500">YUV 数据无 OB</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-4 gap-1 items-end">
+                  {(["R", "Gr", "Gb", "B"] as const).map((label, idx) => (
+                    <label key={label} className="block text-center">
+                      <span className="text-[10px] text-neutral-400">{label}</span>
+                      <NumBox
+                        value={ob[idx]}
+                        min={-4095}
+                        max={4095}
+                        decimals={0}
+                        step={1}
+                        onChange={(v) => {
+                          const next = [...ob] as [number, number, number, number];
+                          next[idx] = v;
+                          setOb(next);
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[10px] text-neutral-500 leading-relaxed">
+                  按物理通道填 OB 扣除量（正=减 OB / 负=加回），依导入的 Bayer 排列（RGGB/BGGR…）自动映射位置，在去马赛克前生效；0 = 不处理
+                </p>
+              </>
+            )}
+          </section>
+
           <section className="space-y-2">
             <div className="text-sm font-semibold text-neutral-200 flex items-center justify-between">
               ISP 参数

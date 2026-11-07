@@ -214,6 +214,34 @@ export function rawChannelHistograms(vals: Uint16Array, w: number, h: number, pa
   return { r, gr, gb, b };
 }
 
+/**
+ * 按物理通道（R/Gr/Gb/B）扣除 OB 黑电平，依 Bayer 排列映射到像素位置。
+ * ob 分正负：正值=扣除黑电平（raw − ob），负值=反向加回；结果截断到 [0, maxVal]。
+ */
+export function subtractOb(
+  vals: Uint16Array,
+  w: number,
+  h: number,
+  pattern: string,
+  ob: [number, number, number, number],
+  maxVal: number
+): Uint16Array {
+  const out = new Uint16Array(vals.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const ch = pattern[((y & 1) << 1) | (x & 1)];
+      let c: number;
+      if (ch === "R") c = ob[0];
+      else if (ch === "B") c = ob[3];
+      else c = pattern[((y & 1) << 1) | ((x > 0 ? x - 1 : x + 1) & 1)] === "R" ? ob[1] : ob[2];
+      const v = vals[i] - c;
+      out[i] = v < 0 ? 0 : v > maxVal ? maxVal : v;
+    }
+  }
+  return out;
+}
+
 const clip8 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
 
 /** BT.601 有限幅 YUV → RGB（整数近似） */
