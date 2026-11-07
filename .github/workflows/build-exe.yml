@@ -5,11 +5,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag (e.g. v1.0.0)"
-        required: true
-        default: "v1.0.0"
 
 permissions:
   contents: write
@@ -27,43 +22,26 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Fetch Electron binary
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+        run: node node_modules/electron/install.js
+
       - name: Build web app
         run: npm run build
 
-      - name: Generate embedded server + SEA blob
-        run: |
-          node gen-sea-server.cjs
-          node --experimental-sea-config sea-config.json
+      - name: Package portable exe
+        run: npx electron-builder --win portable --publish never
 
-      - name: Install postject
-        run: npm install --no-save postject
-
-      - name: Inject blob into node.exe
+      - name: Stage ASCII-named artifact
         shell: bash
         run: |
-          NODE_EXE=$(which node)
-          SENTINEL=$(grep -a -o "NODE_SEA_FUSE_[a-f0-9]*" "$NODE_EXE" | head -1)
-          echo "Using sentinel: $SENTINEL"
-          cp "$NODE_EXE" "图片对比查看器.exe"
-          npx postject "图片对比查看器.exe" NODE_SEA_BLOB sea-prep.blob --sentinel-fuse "$SENTINEL"
-
-      - name: Smoke test the exe
-        shell: bash
-        run: |
-          "./图片对比查看器.exe" &
-          EXE_PID=$!
-          sleep 5
-          curl -sf -o /dev/null http://localhost:4173/ && echo "EXE serves OK"
-          kill $EXE_PID || true
-
-      - name: Zip the exe
-        shell: pwsh
-        run: Copy-Item "图片对比查看器.exe" "image-compare-viewer-win-x64.exe"; Compress-Archive -Path "image-compare-viewer-win-x64.exe" -DestinationPath "image-compare-viewer-win-x64.zip" -Force
+          VERSION=$(node -p "require('./package.json').version")
+          cp "release/图片对比查看器 ${VERSION}.exe" "image-compare-viewer-win-x64-v${VERSION}.exe"
+          ls -lh image-compare-viewer-win-x64-v${VERSION}.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          files: image-compare-viewer-win-x64.zip
+          files: image-compare-viewer-win-x64-v*.exe
           generate_release_notes: true
